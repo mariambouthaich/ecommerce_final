@@ -6,7 +6,7 @@ import model.Categorie;
 import model.Panier;
 import model.Produit;
 import model.User;
-import javafx.animation.ScaleTransition;
+import javafx.animation.*;
 import javafx.collections.FXCollections;
 import javafx.fxml.FXML;
 import javafx.fxml.FXMLLoader;
@@ -16,28 +16,24 @@ import javafx.geometry.Pos;
 import javafx.scene.Parent;
 import javafx.scene.Scene;
 import javafx.scene.control.*;
+import javafx.scene.effect.DropShadow;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 import javafx.scene.layout.*;
 import javafx.scene.paint.Color;
-import javafx.scene.effect.DropShadow;
 import javafx.stage.Stage;
 import javafx.util.Duration;
 
 import java.io.IOException;
 import java.net.URL;
+import java.util.Comparator;
 import java.util.List;
 import java.util.ResourceBundle;
 import java.util.stream.Collectors;
 
 /**
- * Controller : Catalogue produits
- * - Grille de cartes avec image, nom, prix, bouton Ajouter
- * - Recherche temps réel
- * - Filtre par catégorie
- * - Filtre par fourchette de prix (Slider)
- * - Animation hover JavaFX sur chaque carte
- * - Badge panier dynamique
+ * Controller : Catalogue — Version 3
+ * Nouveautés : tri produits, toast, page détail, transitions fade, setPanier()
  */
 public class CatalogueController implements Initializable {
 
@@ -48,7 +44,7 @@ public class CatalogueController implements Initializable {
     @FXML private Button  historiqueButton;
     @FXML private Button  profilButton;
 
-    // ── Barre de filtres ─────────────────────────────────────
+    // ── Filtres ──────────────────────────────────────────────
     @FXML private TextField        searchField;
     @FXML private ComboBox<String> categorieCombo;
     @FXML private Slider           prixMinSlider;
@@ -57,18 +53,21 @@ public class CatalogueController implements Initializable {
     @FXML private Label            prixMaxLabel;
     @FXML private Label            nbResultatsLabel;
 
-    // ── Grille produits ──────────────────────────────────────
+    // ── Tri ──────────────────────────────────────────────────
+    @FXML private ComboBox<String> triCombo;
+
+    // ── Grille ───────────────────────────────────────────────
     @FXML private GridPane produitsGrid;
 
     // ── Données ──────────────────────────────────────────────
     private final ProduitDAO   produitDAO   = new ProduitDAO();
     private final CategorieDAO categorieDAO = new CategorieDAO();
 
-    private User             currentUser;
-    private Panier           panier;
-    private List<Produit>    allProduits;
-    private List<Categorie>  allCategories;
-    private double           prixMax = 10000;
+    private User            currentUser;
+    private Panier          panier;
+    private List<Produit>   allProduits;
+    private List<Categorie> allCategories;
+    private double          prixMax = 10000;
 
     // ────────────────────────────────────────────────────────
     // Initialisation
@@ -78,51 +77,40 @@ public class CatalogueController implements Initializable {
         allProduits   = produitDAO.getAllProduits();
         allCategories = categorieDAO.getAllCategories();
 
-        // Prix max dynamique depuis la BD
         prixMax = allProduits.stream()
-                .mapToDouble(Produit::getPrix)
-                .max().orElse(10000);
+                .mapToDouble(Produit::getPrix).max().orElse(10000);
 
-        // ── ComboBox catégories ──────────────────────────────
+        // ComboBox catégories
         List<String> noms = allCategories.stream()
-                .map(Categorie::getNom)
-                .collect(Collectors.toList());
+                .map(Categorie::getNom).collect(Collectors.toList());
         noms.add(0, "Toutes les catégories");
         categorieCombo.setItems(FXCollections.observableArrayList(noms));
         categorieCombo.getSelectionModel().selectFirst();
 
-        // ── Sliders prix ─────────────────────────────────────
-        prixMinSlider.setMin(0);
-        prixMinSlider.setMax(prixMax);
-        prixMinSlider.setValue(0);
+        // ComboBox tri
+        triCombo.setItems(FXCollections.observableArrayList(
+                "Par défaut", "Prix ↑ croissant", "Prix ↓ décroissant",
+                "Nom A → Z", "Nom Z → A", "Stock disponible"
+        ));
+        triCombo.getSelectionModel().selectFirst();
 
-        prixMaxSlider.setMin(0);
-        prixMaxSlider.setMax(prixMax);
-        prixMaxSlider.setValue(prixMax);
-
+        // Sliders prix
+        prixMinSlider.setMin(0); prixMinSlider.setMax(prixMax); prixMinSlider.setValue(0);
+        prixMaxSlider.setMin(0); prixMaxSlider.setMax(prixMax); prixMaxSlider.setValue(prixMax);
         updatePrixLabels();
 
-        // ── Listeners temps réel ─────────────────────────────
+        // Listeners
         searchField.textProperty().addListener((o, v, n) -> filtrer());
         categorieCombo.valueProperty().addListener((o, v, n) -> filtrer());
-        prixMinSlider.valueProperty().addListener((o, v, n) -> {
-            if (n.doubleValue() > prixMaxSlider.getValue())
-                prixMinSlider.setValue(prixMaxSlider.getValue());
-            updatePrixLabels();
-            filtrer();
-        });
-        prixMaxSlider.valueProperty().addListener((o, v, n) -> {
-            if (n.doubleValue() < prixMinSlider.getValue())
-                prixMaxSlider.setValue(prixMinSlider.getValue());
-            updatePrixLabels();
-            filtrer();
-        });
+        triCombo.valueProperty().addListener((o, v, n) -> filtrer());
+        prixMinSlider.valueProperty().addListener((o, v, n) -> { updatePrixLabels(); filtrer(); });
+        prixMaxSlider.valueProperty().addListener((o, v, n) -> { updatePrixLabels(); filtrer(); });
 
         afficherProduits(allProduits);
     }
 
     // ────────────────────────────────────────────────────────
-    // Injecter l'utilisateur depuis Login
+    // Setters injectés depuis d'autres controllers
     // ────────────────────────────────────────────────────────
     public void setCurrentUser(User user) {
         this.currentUser = user;
@@ -131,21 +119,26 @@ public class CatalogueController implements Initializable {
             welcomeLabel.setText("Bonjour, " + user.getNom() + " 👋");
     }
 
+    /** Permet de restaurer le panier existant (depuis DetailProduit) */
+    public void setPanier(Panier panier) {
+        this.panier = panier;
+        majBadge();
+    }
+
     // ────────────────────────────────────────────────────────
-    // Filtrage combiné : texte + catégorie + prix
+    // Filtrage + Tri
     // ────────────────────────────────────────────────────────
     private void filtrer() {
-        String  texte    = searchField.getText().toLowerCase().trim();
-        String  categNom = categorieCombo.getValue();
-        double  pMin     = prixMinSlider.getValue();
-        double  pMax     = prixMaxSlider.getValue();
+        String texte    = searchField.getText().toLowerCase().trim();
+        String categNom = categorieCombo.getValue();
+        double pMin     = prixMinSlider.getValue();
+        double pMax     = prixMaxSlider.getValue();
+        String tri      = triCombo.getValue();
 
         List<Produit> filtres = allProduits.stream()
-                // Filtre texte
                 .filter(p -> p.getNom().toLowerCase().contains(texte)
-                          || (p.getDescription() != null
-                              && p.getDescription().toLowerCase().contains(texte)))
-                // Filtre catégorie
+                        || (p.getDescription() != null
+                        && p.getDescription().toLowerCase().contains(texte)))
                 .filter(p -> {
                     if (categNom == null || categNom.equals("Toutes les catégories"))
                         return true;
@@ -153,23 +146,28 @@ public class CatalogueController implements Initializable {
                             .filter(c -> c.getNom().equals(categNom))
                             .anyMatch(c -> c.getId() == p.getCategorieId());
                 })
-                // Filtre prix
                 .filter(p -> p.getPrix() >= pMin && p.getPrix() <= pMax)
                 .collect(Collectors.toList());
+
+        // Tri
+        if (tri != null) switch (tri) {
+            case "Prix ↑ croissant"   -> filtres.sort(Comparator.comparingDouble(Produit::getPrix));
+            case "Prix ↓ décroissant" -> filtres.sort(Comparator.comparingDouble(Produit::getPrix).reversed());
+            case "Nom A → Z"          -> filtres.sort(Comparator.comparing(Produit::getNom));
+            case "Nom Z → A"          -> filtres.sort(Comparator.comparing(Produit::getNom).reversed());
+            case "Stock disponible"   -> filtres.sort(Comparator.comparingInt(Produit::getStock).reversed());
+        }
 
         afficherProduits(filtres);
     }
 
-    // ────────────────────────────────────────────────────────
-    // Mettre à jour les labels des sliders
-    // ────────────────────────────────────────────────────────
     private void updatePrixLabels() {
         prixMinLabel.setText(String.format("%.0f MAD", prixMinSlider.getValue()));
         prixMaxLabel.setText(String.format("%.0f MAD", prixMaxSlider.getValue()));
     }
 
     // ────────────────────────────────────────────────────────
-    // Afficher les cartes dans la grille
+    // Afficher les cartes
     // ────────────────────────────────────────────────────────
     private void afficherProduits(List<Produit> produits) {
         produitsGrid.getChildren().clear();
@@ -182,13 +180,30 @@ public class CatalogueController implements Initializable {
             produitsGrid.getColumnConstraints().add(cc);
         }
 
-        // Compteur résultats
         if (nbResultatsLabel != null)
-            nbResultatsLabel.setText(produits.size() + " produit(s) trouvé(s)");
+            nbResultatsLabel.setText(produits.size() + " produit(s)");
 
         int col = 0, row = 0;
-        for (Produit p : produits) {
+        for (int i = 0; i < produits.size(); i++) {
+            Produit p = produits.get(i);
             VBox card = creerCarte(p);
+
+            // Animation d'apparition décalée
+            card.setOpacity(0);
+            card.setTranslateY(20);
+            int delay = i * 60;
+
+            FadeTransition ft = new FadeTransition(Duration.millis(300), card);
+            ft.setToValue(1);
+            ft.setDelay(Duration.millis(delay));
+
+            TranslateTransition tt = new TranslateTransition(Duration.millis(300), card);
+            tt.setToY(0);
+            tt.setDelay(Duration.millis(delay));
+
+            ft.play();
+            tt.play();
+
             produitsGrid.add(card, col, row);
             GridPane.setMargin(card, new Insets(10));
             col++;
@@ -197,7 +212,7 @@ public class CatalogueController implements Initializable {
     }
 
     // ────────────────────────────────────────────────────────
-    // Créer une carte produit avec image + animation hover
+    // Créer une carte produit
     // ────────────────────────────────────────────────────────
     private VBox creerCarte(Produit p) {
         VBox card = new VBox(10);
@@ -205,193 +220,203 @@ public class CatalogueController implements Initializable {
         card.setPadding(new Insets(0, 0, 16, 0));
         card.setAlignment(Pos.TOP_CENTER);
 
-        // ── Image du produit ─────────────────────────────────
+        // Image
         ImageView imageView = new ImageView();
         imageView.setFitWidth(240);
         imageView.setFitHeight(160);
         imageView.setPreserveRatio(true);
         imageView.setSmooth(true);
-
-        // Essaie de charger une image par catégorie, sinon image par défaut
-        String imgPath = getImagePath(p.getCategorieId());
         try {
             Image img = new Image(
-                    getClass().getResourceAsStream(imgPath), 240, 160, true, true);
+                    getClass().getResourceAsStream(getImagePath(p.getCategorieId())),
+                    240, 160, true, true);
             imageView.setImage(img);
-        } catch (Exception e) {
-            // Image de remplacement si fichier absent
-            imageView.setStyle("-fx-background-color: #e0e7ff;");
-        }
+        } catch (Exception ignored) {}
 
         StackPane imageBox = new StackPane(imageView);
         imageBox.getStyleClass().add("card-image-box");
         imageBox.setPrefHeight(160);
 
-        // ── Badge stock ──────────────────────────────────────
-        Label stockBadge = new Label(
-                p.getStock() > 0 ? "✔ En stock" : "✘ Rupture");
+        // Badge stock
+        Label stockBadge = new Label(p.getStock() > 0
+                ? "✔ En stock" : "✘ Rupture");
         stockBadge.getStyleClass().add(
                 p.getStock() > 0 ? "badge-stock-ok" : "badge-stock-empty");
 
-        // ── Infos ────────────────────────────────────────────
+        // Infos
         VBox infos = new VBox(6);
         infos.setPadding(new Insets(0, 14, 0, 14));
 
-        Label nom = new Label(p.getNom());
+        Label nom  = new Label(p.getNom());
         nom.getStyleClass().add("product-name");
         nom.setWrapText(true);
 
-        Label desc = new Label(p.getDescription() != null
-                ? p.getDescription() : "");
+        Label desc = new Label(p.getDescription() != null ? p.getDescription() : "");
         desc.getStyleClass().add("product-desc");
         desc.setWrapText(true);
-        desc.setMaxHeight(38);
+        desc.setMaxHeight(36);
 
         Label prix = new Label(String.format("%.2f MAD", p.getPrix()));
         prix.getStyleClass().add("product-price");
 
-        // ── Bouton Ajouter ───────────────────────────────────
-        Button addBtn = new Button("🛒  Ajouter au panier");
+        infos.getChildren().addAll(nom, desc, prix);
+
+        // Boutons
+        HBox btns = new HBox(8);
+        btns.setPadding(new Insets(0, 14, 0, 14));
+
+        Button detailBtn = new Button("👁 Détail");
+        detailBtn.getStyleClass().add("btn-detail");
+        detailBtn.setOnAction(e -> ouvrirDetail(p));
+
+        Button addBtn = new Button("🛒 Ajouter");
         addBtn.getStyleClass().add("btn-add");
-        addBtn.setMaxWidth(Double.MAX_VALUE);
         addBtn.setDisable(p.getStock() == 0);
+        addBtn.setMaxWidth(Double.MAX_VALUE);
+        HBox.setHgrow(addBtn, Priority.ALWAYS);
         addBtn.setOnAction(e -> ajouterAuPanier(p, addBtn));
 
-        infos.getChildren().addAll(nom, desc, prix);
-        card.getChildren().addAll(imageBox, stockBadge, infos, addBtn);
-        VBox.setMargin(addBtn, new Insets(0, 14, 0, 14));
+        btns.getChildren().addAll(detailBtn, addBtn);
+        card.getChildren().addAll(imageBox, stockBadge, infos, btns);
 
-        // ── Animation hover (ScaleTransition JavaFX) ─────────
+        // Hover animation
         DropShadow shadowNormal = new DropShadow(10, Color.rgb(0, 0, 0, 0.08));
         DropShadow shadowHover  = new DropShadow(24, Color.rgb(99, 102, 241, 0.28));
-
         card.setEffect(shadowNormal);
 
-        ScaleTransition scaleUp = new ScaleTransition(Duration.millis(180), card);
-        scaleUp.setToX(1.04);
-        scaleUp.setToY(1.04);
-
+        ScaleTransition scaleUp   = new ScaleTransition(Duration.millis(180), card);
+        scaleUp.setToX(1.04); scaleUp.setToY(1.04);
         ScaleTransition scaleDown = new ScaleTransition(Duration.millis(180), card);
-        scaleDown.setToX(1.0);
-        scaleDown.setToY(1.0);
+        scaleDown.setToX(1.0); scaleDown.setToY(1.0);
 
-        card.setOnMouseEntered(e -> {
-            card.setEffect(shadowHover);
-            scaleUp.playFromStart();
-        });
-        card.setOnMouseExited(e -> {
-            card.setEffect(shadowNormal);
-            scaleDown.playFromStart();
-        });
+        card.setOnMouseEntered(e -> { card.setEffect(shadowHover); scaleUp.playFromStart(); });
+        card.setOnMouseExited(e  -> { card.setEffect(shadowNormal); scaleDown.playFromStart(); });
 
         return card;
     }
 
     // ────────────────────────────────────────────────────────
-    // Retourner le chemin image selon la catégorie
+    // Ouvrir la page détail
     // ────────────────────────────────────────────────────────
-    private String getImagePath(int categorieId) {
-        // Place tes images dans src/main/resources/images/
-        return switch (categorieId) {
-            case 1  -> "/images/electronique.png";
-            case 2  -> "/images/informatique.png";
-            case 3  -> "/images/accessoires.png";
-            case 4  -> "/images/vetements.png";
-            case 5  -> "/images/maison.png";
-            default -> "/images/default.png";
-        };
+    private void ouvrirDetail(Produit p) {
+        try {
+            FXMLLoader loader = new FXMLLoader(
+                    getClass().getResource("/fxml/detail-produit.fxml"));
+            Parent root = loader.load();
+            DetailProduitController ctrl = loader.getController();
+            ctrl.setProduit(p, currentUser, panier);
+
+            Stage stage = (Stage) produitsGrid.getScene().getWindow();
+            root.setOpacity(0);
+            stage.setScene(new Scene(root, 820, 560));
+            stage.setTitle("🔍 " + p.getNom());
+
+            FadeTransition ft = new FadeTransition(Duration.millis(300), root);
+            ft.setToValue(1);
+            ft.play();
+        } catch (IOException e) { e.printStackTrace(); }
     }
 
     // ────────────────────────────────────────────────────────
-    // Ajouter au panier + feedback visuel sur le bouton
+    // Ajouter au panier + Toast
     // ────────────────────────────────────────────────────────
     private void ajouterAuPanier(Produit p, Button btn) {
         if (panier == null) return;
         panier.ajouterItem(p, 1);
+        majBadge();
 
-        // Mise à jour badge
-        int total = panier.getItems().stream()
-                .mapToInt(i -> i.getQuantite()).sum();
-        badgePanier.setText(String.valueOf(total));
-        badgePanier.setVisible(true);
+        // Toast
+        Stage stage = (Stage) btn.getScene().getWindow();
+        ToastController.show(stage, "✅ " + p.getNom() + " ajouté au panier !",
+                ToastController.Type.SUCCESS);
 
-        // Feedback bouton temporaire
-        String originalText = btn.getText();
+        // Feedback bouton
+        String orig = btn.getText();
         btn.setText("✅ Ajouté !");
         btn.setDisable(true);
         new Thread(() -> {
             try { Thread.sleep(1200); } catch (InterruptedException ignored) {}
             javafx.application.Platform.runLater(() -> {
-                btn.setText(originalText);
+                btn.setText(orig);
                 btn.setDisable(false);
             });
         }).start();
     }
 
     // ────────────────────────────────────────────────────────
-    // Réinitialiser les filtres
+    // Mettre à jour le badge panier
+    // ────────────────────────────────────────────────────────
+    private void majBadge() {
+        if (panier == null || badgePanier == null) return;
+        int total = panier.getItems().stream().mapToInt(i -> i.getQuantite()).sum();
+        badgePanier.setText(String.valueOf(total));
+        badgePanier.setVisible(total > 0);
+
+        // Animation pulse sur le badge
+        ScaleTransition pulse = new ScaleTransition(Duration.millis(200), badgePanier);
+        pulse.setFromX(1.0); pulse.setToX(1.4);
+        pulse.setFromY(1.0); pulse.setToY(1.4);
+        pulse.setAutoReverse(true);
+        pulse.setCycleCount(2);
+        pulse.play();
+    }
+
+    // ────────────────────────────────────────────────────────
+    // Réinitialiser filtres
     // ────────────────────────────────────────────────────────
     @FXML
     public void reinitialiserFiltres() {
         searchField.clear();
         categorieCombo.getSelectionModel().selectFirst();
+        triCombo.getSelectionModel().selectFirst();
         prixMinSlider.setValue(0);
         prixMaxSlider.setValue(prixMax);
     }
 
+    private String getImagePath(int categorieId) {
+        return switch (categorieId) {
+            case 1  -> "/images/electronique.png";
+            case 2  -> "/images/vetements.png";
+            case 3  -> "/images/alimentation.png";
+            default -> "/images/default.png";
+        };
+    }
+
     // ────────────────────────────────────────────────────────
-    // Navigation
+    // Navigation avec transitions fade
     // ────────────────────────────────────────────────────────
-    @FXML
-    public void ouvrirPanier() {
+    private void naviguer(String fxml, int w, int h, String title,
+                          java.util.function.Consumer<Object> setup) {
         try {
-            FXMLLoader loader = new FXMLLoader(
-                    getClass().getResource("/fxml/panier.fxml"));
+            FXMLLoader loader = new FXMLLoader(getClass().getResource(fxml));
             Parent root = loader.load();
-            PanierController ctrl = loader.getController();
-            ctrl.setContext(currentUser, panier);
+            if (setup != null) setup.accept(loader.getController());
             Stage stage = (Stage) panierButton.getScene().getWindow();
-            stage.setScene(new Scene(root, 900, 620));
-            stage.setTitle("🛒 Mon Panier");
+            root.setOpacity(0);
+            stage.setScene(new Scene(root, w, h));
+            stage.setTitle(title);
+            FadeTransition ft = new FadeTransition(Duration.millis(250), root);
+            ft.setToValue(1);
+            ft.play();
         } catch (IOException e) { e.printStackTrace(); }
     }
 
-    @FXML
-    public void ouvrirHistorique() {
-        try {
-            FXMLLoader loader = new FXMLLoader(
-                    getClass().getResource("/fxml/historique.fxml"));
-            Parent root = loader.load();
-            HistoriqueController ctrl = loader.getController();
-            ctrl.setCurrentUser(currentUser);
-            Stage stage = (Stage) historiqueButton.getScene().getWindow();
-            stage.setScene(new Scene(root, 900, 620));
-            stage.setTitle("📋 Mes Commandes");
-        } catch (IOException e) { e.printStackTrace(); }
+    @FXML public void ouvrirPanier() {
+        naviguer("/fxml/panier.fxml", 900, 620, "🛒 Mon Panier",
+                ctrl -> ((PanierController) ctrl).setContext(currentUser, panier));
     }
 
-    @FXML
-    public void ouvrirProfil() {
-        try {
-            FXMLLoader loader = new FXMLLoader(
-                    getClass().getResource("/fxml/profil.fxml"));
-            Parent root = loader.load();
-            ProfilController ctrl = loader.getController();
-            ctrl.setCurrentUser(currentUser);
-            Stage stage = (Stage) profilButton.getScene().getWindow();
-            stage.setScene(new Scene(root, 520, 540));
-            stage.setTitle("👤 Mon Profil");
-        } catch (IOException e) { e.printStackTrace(); }
+    @FXML public void ouvrirHistorique() {
+        naviguer("/fxml/historique.fxml", 900, 620, "📋 Mes Commandes",
+                ctrl -> ((HistoriqueController) ctrl).setCurrentUser(currentUser));
     }
 
-    @FXML
-    public void seDeconnecter() {
-        try {
-            Parent root = FXMLLoader.load(
-                    getClass().getResource("/fxml/login-client.fxml"));
-            Stage stage = (Stage) panierButton.getScene().getWindow();
-            stage.setScene(new Scene(root, 480, 420));
-            stage.setTitle("Connexion");
-        } catch (IOException e) { e.printStackTrace(); }
+    @FXML public void ouvrirProfil() {
+        naviguer("/fxml/profil.fxml", 520, 540, "👤 Mon Profil",
+                ctrl -> ((ProfilController) ctrl).setCurrentUser(currentUser));
+    }
+
+    @FXML public void seDeconnecter() {
+        naviguer("/fxml/login-client.fxml", 480, 420, "Connexion", null);
     }
 }

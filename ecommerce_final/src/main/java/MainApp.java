@@ -3,19 +3,21 @@ import javafx.fxml.FXMLLoader;
 import javafx.scene.Parent;
 import javafx.scene.Scene;
 import javafx.stage.Stage;
+import javafx.stage.StageStyle;
 
 /**
- * Point d'entrée de l'application E-Commerce JavaFX
- * Lance l'interface client → login-client.fxml
+ * Point d'entrée — démarre avec le Splash Screen animé
  */
 public class MainApp extends Application {
 
     @Override
     public void start(Stage primaryStage) throws Exception {
+        // Démarrer avec le splash screen
         Parent root = FXMLLoader.load(
-                getClass().getResource("/fxml/login-client.fxml"));
-        primaryStage.setTitle("🛍 E-Commerce — Connexion");
-        primaryStage.setScene(new Scene(root, 480, 420));
+                getClass().getResource("/fxml/splash.fxml"));
+
+        primaryStage.setTitle("🛍 E-Commerce");
+        primaryStage.setScene(new Scene(root, 520, 380));
         primaryStage.setResizable(false);
         primaryStage.show();
     }
