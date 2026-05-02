@@ -3,9 +3,9 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 public class DatabaseConnection {
     // ── Paramètres de connexion ──────────────────────────────
-    private static final String URL      = "jdbc:mysql://localhost:3308/ecommerce";
+    private static final String URL      = "jdbc:mysql://localhost:3306/ecommerce";
     private static final String USER     = "root";
-    private static final String PASSWORD = "Salma_1337";
+    private static final String PASSWORD = "azert1234";
     // ────────────────────────────────────────────────────────
     private static Connection instance = null;
 
