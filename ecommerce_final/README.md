@@ -64,7 +64,7 @@ Modifier `DatabaseConnection.java` si nécessaire :
 ```java
 private static final String URL      = "jdbc:mysql://localhost:3308/ecommerce";
 private static final String USER     = "root";
-private static final String PASSWORD = "Salma_1337";
+private static final String PASSWORD = "votre code de Mysql";
 ```
 
 ## Lancement
