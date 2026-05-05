@@ -57,6 +57,7 @@ ecommerce/
 - Java 17+
 - Maven 3.8+
 - MySQL 8.0 (port 3306)
+- javafx
 
 ## Configuration BD
 
